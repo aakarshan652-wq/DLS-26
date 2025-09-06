@@ -1,3 +1,313 @@
 # DLS-26
 RISE ROAR REVENGE
-single_file_html_football_penalty_shootout_game.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Arcade Football — Local 2‑Player Match</title>
+  <style>
+    :root{--bg:#071126;--field:#0d6b2f;--accent:#ffd64b;--teamA:#1e90ff;--teamB:#ff6b6b}
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,#071126 0%,#0b1530 100%);color:#eef3fb;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    .wrap{height:100vh;display:flex;flex-direction:column}
+    .stage{flex:1;position:relative;overflow:hidden}
+    canvas{display:block;width:100%;height:100%;background:linear-gradient(180deg,#0b421f,#0d6b2f);}
+    .topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:linear-gradient(180deg,rgba(0,0,0,.28),rgba(0,0,0,.18));gap:12px}
+    .btn{background:#101827;color:var(--ui);border-radius:8px;padding:8px 12px;border:1px solid rgba(255,255,255,.06);cursor:pointer}
+    .panel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(8,12,20,.95);padding:18px;border-radius:12px;border:1px solid rgba(255,255,255,.06);z-index:40;width:min(720px,94vw)}
+    .hidden{display:none}
+    .controls{font-size:13px;color:#cbd5e1}
+    .mobile-controls{position:absolute;left:12px;bottom:12px;display:flex;gap:8px;z-index:50}
+    .circle-btn{width:64px;height:64px;border-radius:50%;background:rgba(0,0,0,0.45);display:grid;place-items:center;border:1px solid rgba(255,255,255,.06);font-weight:700}
+    .joystick{position:absolute;left:12px;bottom:92px;width:120px;height:120px;border-radius:50%;background:rgba(0,0,0,0.12);display:grid;place-items:center}
+    .small{padding:6px 8px;font-size:13px}
+    .score{font-weight:800;font-size:18px}
+    .muted{color:#9fb7c9}
+    .badge{background:rgba(0,0,0,.35);padding:6px 8px;border-radius:8px}
+    @media (max-width:700px){ .panel{width:94vw;padding:14px} .circle-btn{width:56px;height:56px} .joystick{width:100px;height:100px} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div style="display:flex;gap:12px;align-items:center">
+        <div class="badge">Match: <select id="matchLen"><option value="60">1:00</option><option value="180">3:00</option><option value="300">5:00</option></select></div>
+        <div class="badge">AI: <select id="aiMode"><option value="normal">Normal</option><option value="hard">Hard</option></select></div>
+      </div>
+      <div style="text-align:center">
+        <div class="score" id="score">0 - 0</div>
+        <div class="muted" id="time">01:00</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button id="startBtn" class="btn">Start</button>
+        <button id="pauseBtn" class="btn small">Pause</button>
+        <button id="restartBtn" class="btn small">Restart</button>
+      </div>
+    </div>
+
+    <div class="stage">
+      <canvas id="game"></canvas>
+
+      <div id="menu" class="panel">
+        <h2 style="margin:0 0 8px">Arcade Football — Local 2‑Player</h2>
+        <p class="muted" style="margin:0 0 12px">Play locally with a friend or against smarter AI. This build includes: two-player local (WASD / arrows), mobile on-screen controls, improved AI, scoring animation, sound effects, and options for match length & difficulty.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button id="menuPlay" class="btn">Play</button>
+          <button id="menu2p" class="btn">Enable 2-Player Local</button>
+          <button id="menuHow" class="btn">How to Play</button>
+        </div>
+        <p style="margin-top:10px;font-size:13px;color:#9fb7c9">Controls — Player 1: WASD to move, J = Pass, K = Shoot (hold). Player 2: ←↑→↓ to move, N = Pass, M = Shoot (hold). On mobile use the joystick + buttons.</p>
+      </div>
+
+      <div id="goalAnim" class="panel hidden" style="width:fit-content;transform:translate(-50%,-60%);left:50%;top:30%;">
+        <h1 id="goalText" style="margin:0">GOAL!</h1>
+      </div>
+
+      <!-- Mobile controls (touch) -->
+      <div id="mobileLeft" class="joystick hidden" aria-hidden="true"></div>
+      <div id="mobileBtns" class="mobile-controls hidden">
+        <div id="passBtn" class="circle-btn">Pass</div>
+        <div id="shootBtn" class="circle-btn">Shoot</div>
+        <div id="switchBtn" class="circle-btn">Switch</div>
+      </div>
+
+    </div>
+  </div>
+
+<script>
+(() => {
+  // Canvas setup with DPR handling for sharp graphics
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  let dpr = Math.min(2, window.devicePixelRatio || 1);
+  function resize(){
+    canvas.width = Math.floor(canvas.clientWidth * dpr);
+    canvas.height = Math.floor(canvas.clientHeight * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    W = canvas.clientWidth; H = canvas.clientHeight;
+  }
+  new ResizeObserver(resize).observe(canvas);
+
+  // UI elements
+  const menu = document.getElementById('menu');
+  const menuPlay = document.getElementById('menuPlay');
+  const menu2p = document.getElementById('menu2p');
+  const menuHow = document.getElementById('menuHow');
+  const startBtn = document.getElementById('startBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const restartBtn = document.getElementById('restartBtn');
+  const scoreEl = document.getElementById('score');
+  const timeEl = document.getElementById('time');
+  const matchLenSel = document.getElementById('matchLen');
+  const aiModeSel = document.getElementById('aiMode');
+  const goalAnim = document.getElementById('goalAnim');
+  const goalText = document.getElementById('goalText');
+
+  const mobileLeft = document.getElementById('mobileLeft');
+  const mobileBtns = document.getElementById('mobileBtns');
+  const passBtn = document.getElementById('passBtn');
+  const shootBtn = document.getElementById('shootBtn');
+  const switchBtn = document.getElementById('switchBtn');
+
+  // Basic game settings/state
+  let W = 800, H = 480;
+  let last = performance.now();
+  const settings = { matchLength: parseInt(matchLenSel.value), ai: aiModeSel.value, twoPlayerLocal: false };
+  const state = { running:false, paused:false, time: settings.matchLength, scoreA:0, scoreB:0 };
+
+  // Entities
+  function createPlayer(team, x, y, id){ return { id, team, x, y, vx:0, vy:0, r:14, speed:180, hasBall:false, control:false, color: team==='A'? '#1e90ff':'#ff6b6b' } }
+  let players = [], ball = { x:0, y:0, vx:0, vy:0, r:9, owner:null };
+  let controlledIndexA = 0, controlledIndexB = null;
+
+  function initEntities(){
+    const f = field(); players = [];
+    players.push(createPlayer('A', f.x + f.w*0.18, f.y + f.h*0.45, 'A1'));
+    players.push(createPlayer('A', f.x + f.w*0.18, f.y + f.h*0.60, 'A2'));
+    players.push(createPlayer('B', f.x + f.w*0.82, f.y + f.h*0.45, 'B1'));
+    players.push(createPlayer('B', f.x + f.w*0.82, f.y + f.h*0.60, 'B2'));
+    players[0].control = true; controlledIndexA = 0; controlledIndexB = settings.twoPlayerLocal ? 2 : null;
+    ball.x = f.x + f.w/2; ball.y = f.y + f.h/2; ball.vx=ball.vy=0; ball.owner = null; players.forEach(p=>p.hasBall=false);
+  }
+
+  // field layout helper
+  function field(){ const pad = Math.min(W,H) * 0.06; return { x:pad, y:pad, w:W - pad*2, h:H - pad*2 }; }
+
+  // Input handling
+  const keys = {};
+  window.addEventListener('keydown', e => { keys[e.code] = true; if(e.code === 'Tab'){ e.preventDefault(); switchPlayerLocal(); } });
+  window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+  function switchPlayerLocal(){ if(settings.twoPlayerLocal){ // rotate which player B is controlled
+    const next = players.filter(p=>p.team==='B').findIndex(p=>p.id === players[controlledIndexB]?.id) + 1; controlledIndexB = (controlledIndexB === null)?2:(controlledIndexB===2?3:2);
+  } else { // switch among team A
+    players.forEach(p=>p.control=false); controlledIndexA = (controlledIndexA+1)%2; players[controlledIndexA].control=true; }}
+
+  // Mobile joystick (very simple)
+  let mobileDir = { x:0, y:0 };
+  let mobileActive = false;
+  function enableMobileControls(){ mobileLeft.classList.remove('hidden'); mobileBtns.classList.remove('hidden');
+    // simple touch area for joystick
+    mobileLeft.addEventListener('pointerdown', startMobile);
+    mobileLeft.addEventListener('pointermove', moveMobile);
+    mobileLeft.addEventListener('pointerup', endMobile);
+    passBtn.addEventListener('pointerdown', ()=> mobilePass = true);
+    shootBtn.addEventListener('pointerdown', ()=> mobileShoot = true);
+    passBtn.addEventListener('pointerup', ()=> mobilePass = false);
+    shootBtn.addEventListener('pointerup', ()=> mobileShoot = false);
+    switchBtn.addEventListener('pointerdown', ()=> switchPlayerLocal());
+  }
+  function startMobile(e){ mobileActive=true; moveMobile(e); }
+  function moveMobile(e){ const rect = mobileLeft.getBoundingClientRect(); const cx = rect.left + rect.width/2; const cy = rect.top + rect.height/2; const x = e.clientX - cx; const y = e.clientY - cy; const mag = Math.hypot(x,y)||1; mobileDir.x = Math.max(-1,Math.min(1,x/rect.width*2)); mobileDir.y = Math.max(-1,Math.min(1,y/rect.height*2)); }
+  function endMobile(){ mobileDir.x=0; mobileDir.y=0; mobileActive=false; }
+
+  let mobilePass=false, mobileShoot=false;
+
+  // AI behaviours — improved: decision making, passing, shooting and marking
+  function aiUpdate(p, dt){
+    const f = field(); const teammates = players.filter(x=>x.team===p.team && x!==p); const opponents = players.filter(x=>x.team!==p.team);
+    // basic roles: closest to ball chases, others support
+    const distBall = Math.hypot(ball.x - p.x, ball.y - p.y);
+    if(ball.owner && ball.owner.team !== p.team){ // chase ball owner
+      moveTowards(p, ball.owner.x + (Math.random()-0.5)*20, ball.owner.y + (Math.random()-0.5)*20, dt);
+      if(distBall < 28 && Math.random() < 0.12) tackle(p);
+      return;
+    }
+    if(!ball.owner){ if(distBall < 120){ moveTowards(p, ball.x, ball.y, dt); return; } }
+    if(p.hasBall){ // attack
+      const goal = p.team==='A' ? { x: f.x+f.w, y: f.y + f.h/2 } : { x: f.x, y: f.y + f.h/2 };
+      // if close and chance high, shoot; else look for pass
+      if(Math.hypot(goal.x - p.x, goal.y - p.y) < 220 && Math.random() < (settings.ai==='hard'?0.14:0.06)) { aiShoot(p); return; }
+      // find open teammate
+      const open = teammates.reduce((best,t)=>{ const d = Math.hypot(t.x - p.x, t.y - p.y); if(!best || d > Math.hypot(best.x - p.x, best.y - p.y)) return t; return best; }, null);
+      if(open && Math.random() < 0.06){ releaseBall(p, 0.7, { x: open.x, y: open.y }); return; }
+      moveTowards(p, goal.x, goal.y, dt);
+      return;
+    }
+    // support positioning
+    const homeX = f.x + f.w*(p.team==='A'? 0.28 : 0.72) + (Math.random()-0.5)*40;
+    const homeY = f.y + f.h*(0.45 + (p.id.endsWith('2')?0.12:0)) + (Math.random()-0.5)*40;
+    moveTowards(p, homeX, homeY, dt);
+  }
+
+  function moveTowards(p, tx, ty, dt){ const dx = tx - p.x, dy = ty - p.y; const d = Math.hypot(dx,dy)||1; const spd = p.speed * (1 + (Math.random()-0.5)*0.12); p.x += (dx/d) * spd * dt/1000; p.y += (dy/d) * spd * dt/1000; }
+
+  function tackle(p){ // simple attempt to steal
+    if(ball.owner && Math.hypot(ball.owner.x - p.x, ball.owner.y - p.y) < 36){ ball.owner.hasBall = false; ball.owner = null; sfx('tackle'); }
+  }
+
+  // ball and passing/shooting
+  function tryPickup(p){ if(ball.owner) return; const d = Math.hypot(ball.x - p.x, ball.y - p.y); if(d < p.r + ball.r + 6){ p.hasBall = true; ball.owner = p; ball.vx=ball.vy=0; } }
+  function releaseBall(player, power=1, target=null){ if(!player.hasBall) return; player.hasBall = false; ball.owner = null; const angle = Math.atan2((target?target.y:player.y) - player.y, (target?target.x:player.x) - player.x); const speed = 260 + 500 * power; ball.vx = Math.cos(angle) * speed; ball.vy = Math.sin(angle) * speed; sfx('kick'); }
+  function aiShoot(player){ const f = field(); const goal = player.team==='A' ? { x: f.x+f.w, y: f.y+f.h/2 + (Math.random()-0.5)*80 } : { x: f.x, y: f.y+f.h/2 + (Math.random()-0.5)*80 }; releaseBall(player, 0.6 + Math.random()*0.4, goal); }
+
+  // collisions
+  function resolveCollisions(){ for(let i=0;i<players.length;i++) for(let j=i+1;j<players.length;j++){ const a=players[i], b=players[j]; const dx=a.x-b.x, dy=a.y-b.y, d=Math.hypot(dx,dy)||1; const minD=a.r+b.r+2; if(d<minD){ const push=(minD-d)/2; const nx=dx/d, ny=dy/d; a.x += nx*push; a.y += ny*push; b.x -= nx*push; b.y -= ny*push; } } }
+
+  // goal detection with animation
+  function checkGoal(){ const f = field(); if(ball.x < f.x + 6){ if(Math.abs(ball.y - (f.y+f.h/2)) < f.h*0.28){ state.scoreB++; kickoff('B'); showGoal('B'); } }
+    if(ball.x > f.x + f.w - 6){ if(Math.abs(ball.y - (f.y+f.h/2)) < f.h*0.28){ state.scoreA++; kickoff('A'); showGoal('A'); } }
+  }
+  function showGoal(team){ goalText.textContent = 'GOAL — ' + (team==='A'?'Blue':'Red'); goalAnim.classList.remove('hidden'); sfx('goal'); setTimeout(()=> goalAnim.classList.add('hidden'), 1200); }
+
+  function kickoff(scoring){ const f = field(); ball.x = f.x + f.w/2; ball.y = f.y + f.h/2; ball.vx=ball.vy=0; ball.owner=null; players.forEach(p=>p.hasBall=false); setTimeout(()=>{ if(scoring==='A'){ // give to B
+      const b = players.find(p=>p.team==='B'); b.x = f.x + f.w*0.65; b.y = f.y + f.h/2; b.hasBall = true; ball.owner = b; }
+    else { const a = players.find(p=>p.team==='A'); a.x = f.x + f.w*0.35; a.y = f.y + f.h/2; a.hasBall = true; ball.owner = a; } }, 700); }
+
+  // end match
+  function endMatch(){ state.running=false; menu.classList.remove('hidden'); menu.querySelector('h2').textContent = 'Full Time — Final Score: ' + state.scoreA + ' - ' + state.scoreB; }
+
+  // physics
+  function update(dt){ if(!state.running || state.paused) return; state.time -= dt/1000; if(state.time <= 0){ state.time = 0; endMatch(); }
+    // controls for players
+    players.forEach(p=>{ if(p.control){ handleControl(p, dt); } else { if(p.team === 'B') aiUpdate(p, dt); } });
+    // ball movement
+    if(ball.owner){ ball.x = ball.owner.x + (ball.owner.team==='A'? 20:-20); ball.y = ball.owner.y; } else { ball.x += ball.vx * dt/1000; ball.y += ball.vy * dt/1000; ball.vx *= 0.996; ball.vy *= 0.996; if(Math.hypot(ball.vx, ball.vy) < 6){ ball.vx = 0; ball.vy=0; } }
+    // pickup
+    players.forEach(p=>{ if(!ball.owner) tryPickup(p); });
+    resolveCollisions();
+    // keep in field
+    const f = field(); players.forEach(p=>{ p.x = Math.max(f.x+12, Math.min(f.x+f.w-12, p.x)); p.y = Math.max(f.y+12, Math.min(f.y+f.h-12, p.y)); });
+    if(ball.x < f.x) { ball.x=f.x; ball.vx *= -0.4; }
+    if(ball.x > f.x+f.w) { ball.x=f.x+f.w; ball.vx *= -0.4; }
+    if(ball.y < f.y) { ball.y=f.y; ball.vy *= -0.4; }
+    if(ball.y > f.y+f.h) { ball.y=f.y+f.h; ball.vy *= -0.4; }
+    checkGoal();
+    // update hud
+    scoreEl.textContent = state.scoreA + ' - ' + state.scoreB; timeEl.textContent = formatTime(Math.ceil(state.time));
+  }
+
+  function handleControl(player, dt){ // keyboard or mobile
+    let ax=0, ay=0; // axis
+    if(player.team==='A'){ if(keys['KeyW']) ay -=1; if(keys['KeyS']) ay +=1; if(keys['KeyA']) ax -=1; if(keys['KeyD']) ax +=1; // actions
+      if(keys['KeyJ']) { const mate = players.find(p=>p.team==='A' && p!==player); if(player.hasBall && mate) releaseBall(player, 0.55, { x: mate.x, y: mate.y }); }
+      if(keys['KeyK']) { if(player.hasBall){ // charge handled by holding key via shootCharge
+          if(!player._charging) player._charging = 0; player._charging = Math.min(1, player._charging + dt/1000); } }
+      else { if(player._charging > 0){ releaseBall(player, Math.min(1, player._charging), { x: field().x + field().w, y: field().y + field().h/2 }); player._charging=0; } }
+    } else { // player B local control (if enabled)
+      if(settings.twoPlayerLocal){ if(keys['ArrowUp']) ay -=1; if(keys['ArrowDown']) ay +=1; if(keys['ArrowLeft']) ax -=1; if(keys['ArrowRight']) ax +=1; if(keys['KeyN']){ const mate = players.find(p=>p.team==='B' && p!==player); if(player.hasBall && mate) releaseBall(player, 0.55, { x: mate.x, y: mate.y }); } if(keys['KeyM']){ if(player.hasBall){ if(!player._charging) player._charging = 0; player._charging = Math.min(1, player._charging + dt/1000); } } else { if(player._charging > 0){ releaseBall(player, Math.min(1, player._charging), { x: field().x, y: field().y + field().h/2 }); player._charging=0; } } }
+    }
+    // mobile input
+    if(player.team==='A' && mobileActive){ ax += mobileDir.x; ay += mobileDir.y; if(mobilePass){ const mate = players.find(p=>p.team==='A' && p!==player); if(player.hasBall && mate){ releaseBall(player, 0.5, { x: mate.x, y: mate.y }); mobilePass=false; } } if(mobileShoot){ if(player.hasBall){ if(!player._charging) player._charging = 0; player._charging = Math.min(1, player._charging + dt/1000); } } else { if(player._charging > 0){ releaseBall(player, Math.min(1, player._charging), { x: field().x + field().w, y: field().y + field().h/2 }); player._charging=0; } } }
+
+    if(ax !== 0 || ay !== 0){ const mag = Math.hypot(ax,ay)||1; player.x += (ax/mag) * player.speed * dt/1000; player.y += (ay/mag) * player.speed * dt/1000; }
+  }
+
+  function formatTime(s){ const mm = String(Math.floor(s/60)).padStart(2,'0'); const ss = String(s%60).padStart(2,'0'); return mm + ':' + ss; }
+
+  // rendering
+  function draw(){ ctx.clearRect(0,0,W,H); drawField(); drawPlayers(); drawBall(); if(showChargeMeter()) drawChargeMeter(); }
+  function drawField(){ const f = field(); // pitch
+    ctx.fillStyle = '#0d6b2f'; ctx.fillRect(f.x, f.y, f.w, f.h);
+    // stripes
+    const stripes = 10; for(let i=0;i<stripes;i++){ ctx.fillStyle = i%2? 'rgba(255,255,255,0.02)':'rgba(0,0,0,0)'; ctx.fillRect(f.x, f.y + i*(f.h/stripes), f.w, f.h/stripes); }
+    // center line and circle
+    ctx.strokeStyle = '#ffffff80'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(f.x + f.w/2, f.y); ctx.lineTo(f.x + f.w/2, f.y+f.h); ctx.stroke(); ctx.beginPath(); ctx.arc(f.x + f.w/2, f.y + f.h/2, Math.min(60, f.h*0.15), 0, Math.PI*2); ctx.stroke();
+    // penalty boxes
+    ctx.strokeRect(f.x + 10, f.y + f.h*0.25, 90, f.h*0.5); ctx.strokeRect(f.x + f.w - 100, f.y + f.h*0.25, 90, f.h*0.5);
+  }
+  function drawPlayers(){ players.forEach(p=>{ // shadow
+      ctx.beginPath(); ctx.ellipse(p.x, p.y + 11, p.r*1.4, p.r*0.55, 0,0,Math.PI*2); ctx.fillStyle='rgba(0,0,0,0.28)'; ctx.fill();
+      // body
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fillStyle = p.color; ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='#062235'; ctx.stroke();
+      // label
+      ctx.fillStyle='#fff'; ctx.font='12px sans-serif'; ctx.textAlign='center'; ctx.fillText(p.id, p.x, p.y+4);
+      if(p.hasBall){ ctx.beginPath(); ctx.arc(p.x + (p.team==='A'? 18:-18), p.y - 14, 6,0,Math.PI*2); ctx.fillStyle= '--accent'; ctx.fillStyle='#ffd64b'; ctx.fill(); }
+      if(p.control){ ctx.beginPath(); ctx.arc(p.x, p.y, p.r+4,0,Math.PI*2); ctx.strokeStyle='rgba(255,255,255,0.08)'; ctx.lineWidth=2; ctx.stroke(); }
+    }); }
+  function drawBall(){ ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2); ctx.fillStyle='#ffffff'; ctx.fill(); ctx.lineWidth=1; ctx.strokeStyle='#d0d0d0'; ctx.stroke(); }
+  function showChargeMeter(){ return players.some(p=>p._charging > 0); }
+  function drawChargeMeter(){ const active = players.find(p=>p._charging > 0); if(!active) return; const meterW = 160; const meterH = 10; const x = W/2 - meterW/2; const y = H - 40; ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(x-6,y-6,meterW+12,meterH+12); ctx.fillStyle='#333'; ctx.fillRect(x,y,meterW,meterH); ctx.fillStyle='#ffd64b'; ctx.fillRect(x,y,meterW * (active._charging||0),meterH); ctx.strokeStyle='#fff'; ctx.strokeRect(x,y,meterW,meterH); }
+
+  // small audio
+  let audioCtx;
+  function sfx(kind){ try{ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); const t = audioCtx.currentTime; const o = audioCtx.createOscillator(); const g = audioCtx.createGain(); o.type = 'sine'; if(kind==='kick'){ o.frequency.setValueAtTime(420,t); g.gain.setValueAtTime(0.06,t); o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t+0.07); } if(kind==='goal'){ o.frequency.setValueAtTime(880,t); g.gain.setValueAtTime(0.08,t); o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t+0.12); } if(kind==='tackle'){ o.frequency.setValueAtTime(200,t); g.gain.setValueAtTime(0.06,t); o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t+0.09); } }catch(e){} }
+
+  // collision and physics helpers reused from earlier logic
+
+  function gameLoop(now){ const dt = Math.min(40, now - last); last = now; update(dt); draw(); requestAnimationFrame(gameLoop); }
+
+  // UI wiring
+  menuPlay.addEventListener('click', ()=>{ startMatch(); });
+  menu2p.addEventListener('click', ()=>{ settings.twoPlayerLocal = !settings.twoPlayerLocal; menu2p.textContent = settings.twoPlayerLocal ? '2-Player: ON' : 'Enable 2-Player Local'; initEntities(); });
+  menuHow.addEventListener('click', ()=> alert('P1: WASD move, J pass, K shoot. P2: arrows move, N pass, M shoot. Tab switches control. On mobile use on-screen joystick and buttons.'));
+  startBtn.addEventListener('click', ()=> startMatch());
+  pauseBtn.addEventListener('click', ()=>{ state.paused = !state.paused; pauseBtn.textContent = state.paused ? 'Resume' : 'Pause'; });
+  restartBtn.addEventListener('click', ()=> startMatch());
+  matchLenSel.addEventListener('change', ()=> settings.matchLength = parseInt(matchLenSel.value));
+  aiModeSel.addEventListener('change', ()=> settings.ai = aiModeSel.value);
+
+  // mobile enable detection
+  function maybeEnableMobile(){ if('ontouchstart' in window || navigator.maxTouchPoints > 0){ enableMobileControls(); } }
+
+  function startMatch(){ settings.matchLength = parseInt(matchLenSel.value); state.time = settings.matchLength; state.scoreA = 0; state.scoreB = 0; state.running = true; state.paused = false; settings.ai = aiModeSel.value; menu.classList.add('hidden'); initEntities(); maybeEnableMobile(); }
+
+  // kickoff initial entities
+  resize(); initEntities(); requestAnimationFrame(gameLoop);
+
+})();
+</script>
+</body>
+</html>
+
